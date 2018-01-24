@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 from collections import deque
 from bs4 import BeautifulSoup
 import xlsxwriter
+from _socket import timeout
 wb = xlsxwriter.Workbook('I:\Srinivas_Spring18\E-Survey\Result.xlsx')
 ws = wb.add_worksheet()
 
@@ -12,7 +13,8 @@ def match(word, matchword):
     wordsArray = []
     wordsArray = word.split("/")
     word = wordsArray[len(wordsArray)-1]
-    #print("Word "+word)
+    if not word:
+        return False
     if len(word) > len(matchword):
         size = len(matchword)
     else:
@@ -23,7 +25,8 @@ def match(word, matchword):
     return True
 
 # starting url. replace google with your own url.
-file = 'I:\Srinivas_Spring18\E-Survey\WebAddresses.csv'
+#file = 'I:\Srinivas_Spring18\E-Survey\WebAddresses.csv'
+file = 'I:\Srinivas_Spring18\E-Survey\Test.csv'
 try:
     with open(file,encoding='utf-8-sig') as csvDataFile:
             csvReader = csv.reader(csvDataFile)
@@ -73,40 +76,44 @@ try:
                             # get url's content
                             print("Crawling URL %s" % url)
                             try:
-                                response = requests.get(url)
-                            except (requests.exceptions.MissingSchema, requests.exceptions.ConnectionError):
-                                # ignore pages with errors and continue with next url
+                                response = requests.get(url, timeout=5)
+                                # extract all email addresses and add them into the resulting set
+                                # You may edit the regular expression as per your requirement
+                                new_emails = set(re.findall(r"[a-z0-9\.\-+_]+@[a-z0-9\.\-+_]+\.[a-z]+", response.text, re.RegexFlag.I))
+                                emailset.update(new_emails)
+                                #print(emails)
+                                # create a beutiful soup for the html document
+                                soup = BeautifulSoup(response.text, 'lxml')
+                             
+                                lists = soup.findAll(href=True)
+                                # Once this document is parsed and processed, now find and process all the anchors i.e. linked urls in this document
+                                for anchor in soup.find_all("a"):
+                                    # extract link url from the anchor
+                                    link = anchor.attrs["href"] if "href" in anchor.attrs else ''
+                                    link = link.replace(" ","")
+                                    # resolve relative links (starting with /)
+                                    if link.startswith('/'):
+                                        link = base_url + link
+                                    elif not link.startswith('http'):
+                                        link = path + link
+                                    # add the new url to the queue if it was not in unprocessed list nor in processed list yet
+                                    if not link in unprocessed_urls and not link in processed_urls:
+                                        unprocessed_urls.append(link)
+                                    
+                            except requests.exceptions.RequestException as e:
+                                print(e)
+                                #ws.write(counter, 2, "Timeout")
                                 continue
-                         
-                            # extract all email addresses and add them into the resulting set
-                            # You may edit the regular expression as per your requirement
-                            new_emails = set(re.findall(r"[a-z0-9\.\-+_]+@[a-z0-9\.\-+_]+\.[a-z]+", response.text, re.RegexFlag.I))
-                            emailset.update(new_emails)
-                            #print(emails)
-                            # create a beutiful soup for the html document
-                            soup = BeautifulSoup(response.text, 'lxml')
-                         
-                            lists = soup.findAll(href=True)
-                            # Once this document is parsed and processed, now find and process all the anchors i.e. linked urls in this document
-                            for anchor in soup.find_all("a"):
-                                # extract link url from the anchor
-                                link = anchor.attrs["href"] if "href" in anchor.attrs else ''
-                                # resolve relative links (starting with /)
-                                if link.startswith('/'):
-                                    link = base_url + link
-                                elif not link.startswith('http'):
-                                    link = path + link
-                                # add the new url to the queue if it was not in unprocessed list nor in processed list yet
-                                if not link in unprocessed_urls and not link in processed_urls:
-                                    unprocessed_urls.append(link)
-                    except (requests.exceptions.MissingSchema, requests.exceptions.ConnectionError):
-                        print("Exception")
+                    except Exception as e:
+                        print(e)
                         continue
                 emailcounter = 0
                 for email in emailset:
                     ws.write(counter, emailcounter+2, email)
                     emailcounter += 1
+                if emailcounter == 0:
+                    ws.write(counter, emailcounter+2, "N/A")
                 counter += 1
-except (requests.exceptions.MissingSchema, requests.exceptions.ConnectionError):
-    print("Exception while procesing csv file")
+except Exception as e:
+    print(e)
 wb.close()
