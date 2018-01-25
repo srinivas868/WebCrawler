@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 from collections import deque
 from bs4 import BeautifulSoup
 import xlsxwriter
-from _socket import timeout
+import time
 wb = xlsxwriter.Workbook('I:\Srinivas_Spring18\E-Survey\Result.xlsx')
 ws = wb.add_worksheet()
 
@@ -25,13 +25,14 @@ def match(word, matchword):
     return True
 
 # starting url. replace google with your own url.
-#file = 'I:\Srinivas_Spring18\E-Survey\WebAddresses.csv'
-file = 'I:\Srinivas_Spring18\E-Survey\Test.csv'
+file = 'I:\Srinivas_Spring18\E-Survey\WebAddresses.csv'
+#file = 'I:\Srinivas_Spring18\E-Survey\Test.csv'
 try:
     with open(file,encoding='utf-8-sig') as csvDataFile:
             csvReader = csv.reader(csvDataFile)
             counter = 0
             for row in csvReader:
+                start = time.time()
                 if counter == 0:
                     ws.write(counter, 0, 'Company Name')
                     ws.write(counter, 1, 'Web Address')
@@ -39,6 +40,8 @@ try:
                     continue
                 ws.write(counter, 0, str(row[0]))
                 ws.write(counter, 1, str(row[1]))
+                if not row[1]:
+                    continue
                 starting_url = 'http://'+str(row[1])+'/'
                 # a queue of urls to be crawled
                 unprocessed_urls = deque([starting_url])
@@ -48,9 +51,14 @@ try:
                 emailset = set()
                 urlparts = urlsplit(starting_url)
                 domain = urlparts.netloc
+                crawledurlcount = 0
                 # process urls one by one from unprocessed_url queue until queue is empty
+                connectionrefused = False
                 while len(unprocessed_urls):
                     try:
+                        if crawledurlcount > 20:
+                            ws.write(counter, 2, "Infinite loop")
+                            break
                         # move next url from the queue to the set of processed urls
                         url = unprocessed_urls.popleft()
                         pageEligibleForCrawl = False
@@ -63,7 +71,6 @@ try:
                         if not processingDomain == domain:
                             continue
                         base_url = "{0.scheme}://{0.netloc}".format(parts)
-                        testpath = url[:url.rfind('/')] if '/' in parts.path else url
                         path = url[:url.rfind('/')+1] if '/' in parts.path else url
                         if not "/" == parts.path and not "" == parts.path:
                             #matchwords = set(re.findall(r"/\b(about(us)?)\b/", url, re.RegexFlag.I))
@@ -73,6 +80,7 @@ try:
                             pageEligibleForCrawl = True   
                         
                         if pageEligibleForCrawl:
+                            crawledurlcount += 1
                             # get url's content
                             print("Crawling URL %s" % url)
                             try:
@@ -81,11 +89,10 @@ try:
                                 # You may edit the regular expression as per your requirement
                                 new_emails = set(re.findall(r"[a-z0-9\.\-+_]+@[a-z0-9\.\-+_]+\.[a-z]+", response.text, re.RegexFlag.I))
                                 emailset.update(new_emails)
-                                #print(emails)
+                                #print(emailset)
                                 # create a beutiful soup for the html document
                                 soup = BeautifulSoup(response.text, 'lxml')
                              
-                                lists = soup.findAll(href=True)
                                 # Once this document is parsed and processed, now find and process all the anchors i.e. linked urls in this document
                                 for anchor in soup.find_all("a"):
                                     # extract link url from the anchor
@@ -102,16 +109,18 @@ try:
                                     
                             except requests.exceptions.RequestException as e:
                                 print(e)
-                                #ws.write(counter, 2, "Timeout")
+                                ws.write(counter, 2, "Connection Refused")
+                                connectionrefused = True
                                 continue
                     except Exception as e:
                         print(e)
                         continue
                 emailcounter = 0
                 for email in emailset:
-                    ws.write(counter, emailcounter+2, email)
+                    if connectionrefused == False:
+                        ws.write(counter, emailcounter+2, email)
                     emailcounter += 1
-                if emailcounter == 0:
+                if emailcounter == 0 and connectionrefused == False and crawledurlcount < 20:
                     ws.write(counter, emailcounter+2, "N/A")
                 counter += 1
 except Exception as e:
